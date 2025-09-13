@@ -1,10 +1,37 @@
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain import PromptTemplate
 import streamlit as st
 import os
 import uuid
+import sqlite3
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain import PromptTemplate
 
-# Set Google API key from Streamlit secrets
+# Setup DB connection
+conn = sqlite3.connect('tweet_history.db', check_same_thread=False)
+c = conn.cursor()
+
+# Create tables if not exists
+c.execute('''
+CREATE TABLE IF NOT EXISTS tweets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic TEXT,
+    number INTEGER,
+    language TEXT,
+    tweets TEXT
+)
+''')
+
+c.execute('''
+CREATE TABLE IF NOT EXISTS ratings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tweet_id INTEGER,
+    user_id TEXT,
+    rating INTEGER,
+    UNIQUE(tweet_id, user_id)
+)
+''')
+conn.commit()
+
+# Setup GPT and Prompt
 os.environ['GOOGLE_API_KEY'] = st.secrets['GOOGLE_API_KEY']
 
 LANGUAGES = {
@@ -18,87 +45,79 @@ LANGUAGES = {
     "Telugu": "te"
 }
 
-tweet_template = (
-    "Generate {number} tweets on '{topic}' in {language}."
-)
-tweet_prompt = PromptTemplate(
-    template=tweet_template,
-    input_variables=['number', 'topic', 'language']
-)
-
+tweet_template = "Generate {number} tweets on '{topic}' in {language}."
+tweet_prompt = PromptTemplate(template=tweet_template, input_variables=['number', 'topic', 'language'])
 gemini_model = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest")
 tweet_chain = tweet_prompt | gemini_model
 
 st.header("Tweet Generator - SAMVED")
 st.subheader("Generate tweets using Generative AI")
 
-if 'global_history' not in st.session_state:
-    st.session_state['global_history'] = {
-        "tweet_history": [],
-        "likes": [],
-        "dislikes": [],
-        "rated": {}  # keys: (user_session_id, tweet_idx), values: "like"/"dislike"
-    }
-
-history_store = st.session_state['global_history']
-
-if 'user_session_id' not in st.session_state:
-    st.session_state['user_session_id'] = str(uuid.uuid4())
-
-while len(history_store['likes']) < len(history_store['tweet_history']):
-    history_store['likes'].append(0)
-while len(history_store['dislikes']) < len(history_store['tweet_history']):
-    history_store['dislikes'].append(0)
+if 'user_id' not in st.session_state:
+    st.session_state['user_id'] = str(uuid.uuid4())
 
 topic = st.text_input("Topic")
 number = st.number_input("Number of tweets", min_value=1, max_value=10, value=1)
 language = st.selectbox("Language", options=list(LANGUAGES.keys()))
 
 if st.button("Generate") and topic.strip():
-    response = tweet_chain.invoke({
-        "number": number,
-        "topic": topic,
-        "language": language
-    })
-    history_store['tweet_history'].append({
-        "topic": topic,
-        "number": number,
-        "language": language,
-        "tweets": response.content
-    })
-    history_store['likes'].append(0)
-    history_store['dislikes'].append(0)
-    st.success("Tweets generated and added to global history!")
+    response = tweet_chain.invoke({"number": number, "topic": topic, "language": language})
+    tweets_content = response.content
 
-if history_store['tweet_history']:
-    st.markdown("### Global Tweet History (All Users)")
-    for i, entry in enumerate(reversed(history_store['tweet_history'])):
-        idx = len(history_store['tweet_history']) - 1 - i
+    # Save to DB
+    c.execute('INSERT INTO tweets (topic, number, language, tweets) VALUES (?, ?, ?, ?)',
+              (topic, number, language, tweets_content))
+    conn.commit()
+    st.success("Tweets generated and saved!")
 
-        st.markdown(f"**{i + 1}. Topic:** {entry['topic']} | Language: {entry['language']} | Count: {entry['number']}")
-        st.text(entry['tweets'])
+# Fetch all tweet histories from DB
+c.execute('SELECT id, topic, number, language, tweets FROM tweets ORDER BY id DESC')
+all_tweets = c.fetchall()
 
-        user_vote_key = (st.session_state['user_session_id'], idx)
-        voted = user_vote_key in history_store['rated']
+st.markdown("### Global Tweet History (All Users)")
+for tweet_id, topic, number, language, tweets in all_tweets:
+    st.markdown(f"**Topic:** {topic} | Language: {language} | Count: {number}")
+    st.text(tweets)
 
-        col1, col2, col3 = st.columns([1,1,1])
-        with col1:
-            if voted:
-                st.button("👍 Like", disabled=True, key=f"like_{idx}")
-            else:
-                if st.button("👍 Like", key=f"like_{idx}"):
-                    history_store['likes'][idx] += 1
-                    history_store['rated'][user_vote_key] = "like"
-                    st.success("Thank you for your like!")
-        with col2:
-            if voted:
-                st.button("👎 Dislike", disabled=True, key=f"dislike_{idx}")
-            else:
-                if st.button("👎 Dislike", key=f"dislike_{idx}"):
-                    history_store['dislikes'][idx] += 1
-                    history_store['rated'][user_vote_key] = "dislike"
-                    st.success("Thank you for your feedback!")
-        with col3:
-            st.write(f"Likes: {history_store['likes'][idx]}  Dislikes: {history_store['dislikes'][idx]}")
+    # Fetch ratings for this tweet
+    c.execute('SELECT COUNT(*) FROM ratings WHERE tweet_id = ? AND rating=1', (tweet_id,))
+    likes = c.fetchone()[0] or 0
 
-        st.markdown("---")
+    c.execute('SELECT COUNT(*) FROM ratings WHERE tweet_id = ? AND rating=-1', (tweet_id,))
+    dislikes = c.fetchone()[0] or 0
+    
+    # Check if current user has already rated this tweet
+    c.execute('SELECT rating FROM ratings WHERE tweet_id = ? AND user_id = ?',
+              (tweet_id, st.session_state['user_id']))
+    user_rating = c.fetchone()
+    rated = user_rating is not None
+
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col1:
+        if rated:
+            st.button("👍 Like", disabled=True, key=f"like_{tweet_id}")
+        else:
+            if st.button("👍 Like", key=f"like_{tweet_id}"):
+                try:
+                    c.execute('INSERT INTO ratings (tweet_id, user_id, rating) VALUES (?, ?, 1)',
+                              (tweet_id, st.session_state['user_id']))
+                    conn.commit()
+                    st.experimental_rerun()
+                except sqlite3.IntegrityError:
+                    pass
+    with col2:
+        if rated:
+            st.button("👎 Dislike", disabled=True, key=f"dislike_{tweet_id}")
+        else:
+            if st.button("👎 Dislike", key=f"dislike_{tweet_id}"):
+                try:
+                    c.execute('INSERT INTO ratings (tweet_id, user_id, rating) VALUES (?, ?, -1)',
+                              (tweet_id, st.session_state['user_id']))
+                    conn.commit()
+                    st.experimental_rerun()
+                except sqlite3.IntegrityError:
+                    pass
+    with col3:
+        st.write(f"Likes: {likes}  Dislikes: {dislikes}")
+
+    st.markdown("---")

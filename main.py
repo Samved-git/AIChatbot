@@ -4,6 +4,7 @@ import streamlit as st
 import os
 import uuid
 
+# Set Google API key from Streamlit secrets
 os.environ['GOOGLE_API_KEY'] = st.secrets['GOOGLE_API_KEY']
 
 LANGUAGES = {
@@ -32,13 +33,12 @@ tweet_chain = tweet_prompt | gemini_model
 st.header("Tweet Generator - SAMVED")
 st.subheader("Generate tweets using Generative AI")
 
-# Global state dictionary - shared for all users while app runs
 if 'global_history' not in st.session_state:
     st.session_state['global_history'] = {
         "tweet_history": [],
         "likes": [],
         "dislikes": [],
-        "rated": {}  # key: (user_session_id, tweet_idx), value: "like"/"dislike"
+        "rated": {}  # keys: (user_session_id, tweet_idx), values: "like"/"dislike"
     }
 
 history_store = st.session_state['global_history']
@@ -75,12 +75,14 @@ if history_store['tweet_history']:
     st.markdown("### Global Tweet History (All Users)")
     for i, entry in enumerate(reversed(history_store['tweet_history'])):
         idx = len(history_store['tweet_history']) - 1 - i
+
         st.markdown(
             f"**{i + 1}. Topic:** {entry['topic']} | "
             f"**Language:** {entry['language']} | "
             f"**Tweets Count:** {entry['number']}"
         )
         st.write(entry['tweets'])
+
         user_vote_key = (st.session_state['user_session_id'], idx)
         has_rated = user_vote_key in history_store['rated']
 
@@ -92,7 +94,7 @@ if history_store['tweet_history']:
                 if st.button("👍 Like", key=f"like_{idx}"):
                     history_store['likes'][idx] += 1
                     history_store['rated'][user_vote_key] = "like"
-                    st.experimental_rerun()
+                    st.session_state['rerun'] = True
         with col2:
             if has_rated:
                 st.button("👎 Dislike", key=f"dislike_{idx}", disabled=True)
@@ -100,10 +102,15 @@ if history_store['tweet_history']:
                 if st.button("👎 Dislike", key=f"dislike_{idx}"):
                     history_store['dislikes'][idx] += 1
                     history_store['rated'][user_vote_key] = "dislike"
-                    st.experimental_rerun()
+                    st.session_state['rerun'] = True
         with col3:
             st.write(
                 f"Likes: {history_store['likes'][idx]}  "
                 f"Dislikes: {history_store['dislikes'][idx]}"
             )
         st.markdown("---")
+
+# Perform rerun after state updates to avoid runtime errors
+if st.session_state.get('rerun', False):
+    st.session_state['rerun'] = False
+    st.experimental_rerun()

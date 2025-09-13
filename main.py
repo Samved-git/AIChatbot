@@ -45,9 +45,6 @@ history_store = st.session_state['global_history']
 if 'user_session_id' not in st.session_state:
     st.session_state['user_session_id'] = str(uuid.uuid4())
 
-if 'needs_rerun' not in st.session_state:
-    st.session_state['needs_rerun'] = False
-
 while len(history_store['likes']) < len(history_store['tweet_history']):
     history_store['likes'].append(0)
 while len(history_store['dislikes']) < len(history_store['tweet_history']):
@@ -57,7 +54,9 @@ topic = st.text_input("Topic")
 number = st.number_input("Number of tweets", min_value=1, max_value=10, value=1, step=1)
 language_selected = st.selectbox("Language", options=list(LANGUAGES.keys()))
 
-if st.button("Generate") and topic.strip():
+generate_clicked = st.button("Generate")
+
+if generate_clicked and topic.strip():
     tweets_output = tweet_chain.invoke({
         "number": number,
         "topic": topic,
@@ -71,10 +70,11 @@ if st.button("Generate") and topic.strip():
     })
     history_store['likes'].append(0)
     history_store['dislikes'].append(0)
-    st.session_state['needs_rerun'] = True
+    st.success("Tweets generated and added to history!")
 
 if history_store['tweet_history']:
     st.markdown("### Global Tweet History (All Users)")
+
     for i, entry in enumerate(reversed(history_store['tweet_history'])):
         idx = len(history_store['tweet_history']) - 1 - i
 
@@ -96,7 +96,7 @@ if history_store['tweet_history']:
                 if st.button("👍 Like", key=f"like_{idx}"):
                     history_store['likes'][idx] += 1
                     history_store['rated'][user_vote_key] = "like"
-                    st.session_state['needs_rerun'] = True
+                    st.success("Thank you for your like!")
         with col2:
             if has_rated:
                 st.button("👎 Dislike", key=f"dislike_{idx}", disabled=True)
@@ -104,14 +104,10 @@ if history_store['tweet_history']:
                 if st.button("👎 Dislike", key=f"dislike_{idx}"):
                     history_store['dislikes'][idx] += 1
                     history_store['rated'][user_vote_key] = "dislike"
-                    st.session_state['needs_rerun'] = True
+                    st.success("Thank you for your feedback!")
         with col3:
             st.write(
                 f"Likes: {history_store['likes'][idx]}  "
                 f"Dislikes: {history_store['dislikes'][idx]}"
             )
         st.markdown("---")
-
-if st.session_state['needs_rerun']:
-    st.session_state['needs_rerun'] = False
-    st.experimental_rerun()

@@ -2,6 +2,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain import PromptTemplate
 import streamlit as st
 import os
+import uuid
 
 os.environ['GOOGLE_API_KEY'] = st.secrets['GOOGLE_API_KEY']
 
@@ -31,24 +32,20 @@ tweet_chain = tweet_prompt | gemini_model
 st.header("Tweet Generator - SAMVED")
 st.subheader("Generate tweets using Generative AI")
 
-# Global shared tweet history store (mock persistent store)
-@st.experimental_singleton
-def get_global_history():
-    return {
+# Global state dictionary - shared for all users while app runs
+if 'global_history' not in st.session_state:
+    st.session_state['global_history'] = {
         "tweet_history": [],
         "likes": [],
         "dislikes": [],
         "rated": {}  # key: (user_session_id, tweet_idx), value: "like"/"dislike"
     }
 
-history_store = get_global_history()
+history_store = st.session_state['global_history']
 
-# Simple unique id per user session for rating tracking (use cookies or auth for real app)
 if 'user_session_id' not in st.session_state:
-    import uuid
     st.session_state['user_session_id'] = str(uuid.uuid4())
 
-# Keep likes/dislikes list length in sync with tweet_history
 while len(history_store['likes']) < len(history_store['tweet_history']):
     history_store['likes'].append(0)
 while len(history_store['dislikes']) < len(history_store['tweet_history']):
@@ -64,7 +61,6 @@ if st.button("Generate") and topic.strip():
         "topic": topic,
         "language": language_selected
     })
-    # Append to global shared history storage
     history_store['tweet_history'].append({
         "topic": topic,
         "number": number,

@@ -35,13 +35,15 @@ tweet_chain = tweet_prompt | gemini_model
 st.header("Tweet Generator - SAMVED")
 st.subheader("Generate tweets using Generative AI")
 
-# Initialize session state for tweet history and ratings
+# Initialize session state for tweet history, ratings, and user vote tracking
 if 'tweet_history' not in st.session_state:
     st.session_state['tweet_history'] = []
 if 'likes' not in st.session_state:
     st.session_state['likes'] = []
 if 'dislikes' not in st.session_state:
     st.session_state['dislikes'] = []
+if 'rated' not in st.session_state:
+    st.session_state['rated'] = {}  # key: index, value: "like" or "dislike"
 
 # Synchronize likes/dislikes length with tweet_history length
 while len(st.session_state['likes']) < len(st.session_state['tweet_history']):
@@ -71,7 +73,7 @@ if st.button("Generate") and topic.strip():
     st.session_state['likes'].append(0)
     st.session_state['dislikes'].append(0)
 
-# Display tweet history with Like/Dislike buttons
+# Display tweet history with Like/Dislike buttons and single vote enforcement
 if st.session_state['tweet_history']:
     st.markdown("### Tweet History")
     # Show most recent first
@@ -85,13 +87,23 @@ if st.session_state['tweet_history']:
         )
         st.write(entry['tweets'])
 
+        has_rated = idx in st.session_state['rated']
+
         col1, col2, col3 = st.columns([1, 1, 1])
         with col1:
-            if st.button("👍 Like", key=f"like_{idx}"):
-                st.session_state['likes'][idx] += 1
+            if has_rated:
+                st.button("👍 Like", key=f"like_{idx}", disabled=True)
+            else:
+                if st.button("👍 Like", key=f"like_{idx}"):
+                    st.session_state['likes'][idx] += 1
+                    st.session_state['rated'][idx] = "like"
         with col2:
-            if st.button("👎 Dislike", key=f"dislike_{idx}"):
-                st.session_state['dislikes'][idx] += 1
+            if has_rated:
+                st.button("👎 Dislike", key=f"dislike_{idx}", disabled=True)
+            else:
+                if st.button("👎 Dislike", key=f"dislike_{idx}"):
+                    st.session_state['dislikes'][idx] += 1
+                    st.session_state['rated'][idx] = "dislike"
         with col3:
             st.write(
                 f"Likes: {st.session_state['likes'][idx]}  "

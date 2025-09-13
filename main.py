@@ -4,7 +4,6 @@ import streamlit as st
 import os
 import uuid
 
-# Set Google API key from Streamlit secrets
 os.environ['GOOGLE_API_KEY'] = st.secrets['GOOGLE_API_KEY']
 
 LANGUAGES = {
@@ -38,7 +37,7 @@ if 'global_history' not in st.session_state:
         "tweet_history": [],
         "likes": [],
         "dislikes": [],
-        "rated": {}  # keys: (user_session_id, tweet_idx), values: "like"/"dislike"
+        "rated": {}
     }
 
 history_store = st.session_state['global_history']
@@ -49,7 +48,6 @@ if 'user_session_id' not in st.session_state:
 if 'needs_rerun' not in st.session_state:
     st.session_state['needs_rerun'] = False
 
-# Keep likes/dislikes synchronized length
 while len(history_store['likes']) < len(history_store['tweet_history']):
     history_store['likes'].append(0)
 while len(history_store['dislikes']) < len(history_store['tweet_history']):
@@ -114,7 +112,6 @@ if history_store['tweet_history']:
             )
         st.markdown("---")
 
-# Rerun app once if requested and then reset flag
 if st.session_state['needs_rerun']:
     st.session_state['needs_rerun'] = False
     st.experimental_rerun()

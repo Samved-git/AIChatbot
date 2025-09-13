@@ -23,7 +23,7 @@ tweet_chain = tweet_prompt | gemini_model
 
 import streamlit as st
 
-st.header("Tweet Generator - SATVIK")
+st.header("Tweet Generator - SAMVED")
 
 st.subheader("Generate tweets using Generative AI")
 
